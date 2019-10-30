@@ -1,0 +1,142 @@
+---
+title: "Prediction Assignment Writeup-Practical Machine Learning"
+author: "Victor Vaquero"
+date: "October 30, 2019"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+## Synopsis
+This is a project of the Machine Learning Coursera course. The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+**Information about the data set:**
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+## Getting the data
+```{r, echo=T,cache=T}
+##Loading the libraries:
+suppressWarnings(suppressMessages(library(caret)))
+suppressWarnings(suppressMessages(library(randomForest)))
+suppressWarnings(suppressMessages(library(e1071)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(corrplot)))
+suppressWarnings(suppressMessages(library(rattle)))
+suppressWarnings(suppressMessages(library(rpart)))
+##Check if the directory exists, if not we create it:
+if(!file.exists("./data")){dir.create("./data")}
+
+urltrain<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urltest<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+##Check if we have already downloaded the CSV files, if not we do it:
+if (!file.exists("./data/pml-training.csv")) { 
+  download.file(urltrain, destfile ="./data/pml-training.csv",method="curl")
+}
+
+if (!file.exists("./data/pml-testing.csv")) { 
+  download.file(urltest, destfile ="./data/pml-testing.csv",method="curl")
+}
+## Loading the data
+training <- read.csv("./data/pml-training.csv")
+testing <- read.csv("./data/pml-testing.csv")
+##Checking the dimensions of training and testing:
+dim(training)
+dim(testing)
+##Summary of training:
+summary(training)
+```
+From the summary shown above we can see that there are some variables with a lot of NAs. We need to remove these variables:
+
+## Cleaning the data
+```{r, echo=T,cache=T}
+##Getting the variables with near-zero variance:
+varz<-nearZeroVar(training)
+##Removing these variables from the two data sets:
+training<-training[,-varz]
+testing<-testing[,-varz]
+dim(training)
+##Removing variables with more than 80% of NAs
+varNA<-sapply(training,function(x) mean(is.na(x)))>0.8
+training<-training[,varNA==F]
+testing<-testing[,varNA==F]
+dim(training)
+##We do not need the identifcation variables (columns from 1 to 5)
+training<-training[,-c(1:5)]
+testing<-testing[,-c(1:5)]
+dim(training)
+```
+
+## Predictors:
+
+We need to know with variables use as predictors. For that I study the correlation between the different variables:
+
+```{r, echo=T,cache=T}
+## We have to remove the outcome column:
+correlation<-cor(training[,-54])
+corrplot(correlation, method="circle",type="upper",tl.cex=0.6)
+```
+
+We only observe strong correlation of the variable with itself. So for the time being we do not discard any variable.
+
+## Model:
+
+```{r, echo=T,cache=T}
+##Defining a new training and testing data sets from the original training set
+trainIndex = createDataPartition(training$classe, p = 0.70,list=FALSE)
+newtraining<-training[trainIndex,]
+newtesting<-training[-trainIndex,]
+```
+We do not known with model works better for this dataset. I am going to apply three different models:
+
+#### a) Decision Trees:
+
+```{r, echo=T,fig.height=6,fig.width=12,cache=T}
+set.seed(123)
+modFit1<-rpart(classe~.,data=newtraining, method = "class")
+predict1<-predict(modFit1,newdata=newtesting,type="class")
+matrix1<-confusionMatrix(predict1,newtesting$classe)
+fancyRpartPlot(modFit1)
+matrix1
+```
+The accuracy of decision trees is **`r matrix1$overall['Accuracy']` **
+
+#### b) Random Forest:
+
+```{r, echo=T,cache=T}
+set.seed(123)
+modFit2<-randomForest(classe~., data=newtraining)
+predict2<-predict(modFit2,newdata=newtesting,type="class")
+matrix2<-confusionMatrix(predict2,newtesting$classe)
+matrix2
+```
+
+The accuracy of random forest is **`r matrix2$overall['Accuracy']` **
+
+
+#### c) Generalized Boosted:
+
+```{r, echo=T,cache=T}
+set.seed(123)
+control<-trainControl(method="repeatedcv",number=5,repeats=1)
+modFit3<-train(classe~.,method="gbm",data=newtraining,trControl=control,verbose=F)
+predict3<-predict(modFit3,newdata=newtesting)
+matrix3<-confusionMatrix(predict3,newtesting$classe)
+matrix3
+```
+
+The accuracy of generalized boosted is **`r matrix3$overall['Accuracy']` **
+
+## Best Model:
+
+The model with the best accuracy is random forest. The sample error in this model is 0.36%. Now I apply this model to the quiz test.
+
+## Quiz:
+```{r, echo=T,cache=T}
+predict2<-predict(modFit2,newdata=testing,type="class")
+predict2
+```
+
+
